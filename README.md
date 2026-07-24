@@ -166,6 +166,32 @@ you haven't translated yet) is held in memory and simply regenerates.
 
 ---
 
+## Database privileges
+
+`DATABASE_URL` should point at a **restricted Postgres role**, not your Neon
+project's owner role — the bot only ever needs to read/write rows, and a
+restricted role means a bug or a malicious message can't drop or alter tables.
+Create one once (using the owner role) and use its connection string for the
+app everywhere (local `.env` and Render):
+
+```sql
+CREATE ROLE polylingua_app LOGIN PASSWORD 'choose-a-strong-password';
+GRANT USAGE ON SCHEMA public TO polylingua_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO polylingua_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO polylingua_app;
+-- so future tables/columns keep the same restricted grants automatically:
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO polylingua_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO polylingua_app;
+```
+
+Note: because this role can't `CREATE TABLE`, the owner role must be used once
+to create tables (either by running the app once with the owner role's
+`DATABASE_URL`, or applying the models manually) *before* switching
+`DATABASE_URL` over to `polylingua_app`. Any future schema changes (new
+tables/columns) likewise need a one-off run with the owner role.
+
+---
+
 ## Notes on the model choice
 
 The bot uses `gemini-3.6-flash` — Google's fastest, most cost-effective tier,

@@ -13,7 +13,8 @@ services:
       - key: GEMINI_API_KEY
         sync: false          # set in the Render dashboard
       - key: DATABASE_URL
-        sync: false          # set in the Render dashboard (e.g. a free Neon Postgres URL)
+        sync: false          # set in the Render dashboard: use a restricted DML-only
+                              # role's connection string (see README), not the DB owner role
       - key: WEBHOOK_URL
         sync: false          # e.g. https://polylingua-ai.onrender.com
       - key: WEBHOOK_SECRET
