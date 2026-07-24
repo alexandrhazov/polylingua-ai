@@ -136,6 +136,21 @@ async def record_round_result(word_ids: Sequence[int], score: float) -> None:
         await session.commit()
 
 
+async def skip_words(word_ids: Sequence[int]) -> None:
+    """Bump ``last_practiced_at`` for skipped words without recording a grade.
+
+    Sends them to the back of the rotation queue so the next round picks
+    different words, while leaving mastery/practiced_count untouched.
+    """
+    async with async_session() as session:
+        result = await session.execute(select(Word).where(Word.id.in_(word_ids)))
+        words = result.scalars().all()
+        now = dt.datetime.now(dt.timezone.utc)
+        for word in words:
+            word.last_practiced_at = now
+        await session.commit()
+
+
 async def remaining_count(telegram_id: int) -> int:
     async with async_session() as session:
         result = await session.execute(

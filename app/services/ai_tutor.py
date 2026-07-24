@@ -51,6 +51,18 @@ _SENTENCES_SCHEMA: dict[str, Any] = {
     "required": ["sentences"],
 }
 
+_VOCABULARY_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "words": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Vocabulary words or short phrases appropriate for the level.",
+        }
+    },
+    "required": ["words"],
+}
+
 _EVALUATION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -120,6 +132,33 @@ async def generate_sentences(words: list[str], level: str, source_language: str)
     except (genai_errors.APIError, ValueError, json.JSONDecodeError, KeyError) as exc:
         logger.exception("generate_sentences failed")
         raise TutorError("I couldn't generate practice sentences right now. "
+                         "Please try again in a moment.") from exc
+
+
+async def generate_vocabulary(level: str, language: str, count: int) -> list[str]:
+    """Pick ``count`` vocabulary words/phrases in ``language`` for ``level``.
+
+    Used when the learner doesn't want to supply their own word list — the
+    model chooses common, level-appropriate vocabulary instead. Raises
+    ``TutorError`` on API/parse failure.
+    """
+    prompt = (
+        f"Language: {language}\n"
+        f"Proficiency level (CEFR): {level}\n\n"
+        f"Pick exactly {count} useful, common vocabulary words or short "
+        f"phrases in {language}, appropriate for a {level} learner. Prefer "
+        "variety across nouns, verbs, and adjectives rather than a single "
+        "theme. Return them in the `words` array."
+    )
+    try:
+        data = await _structured_call(prompt, _VOCABULARY_SCHEMA)
+        words = [w.strip() for w in data.get("words", []) if w.strip()]
+        if not words:
+            raise ValueError("model returned no vocabulary")
+        return words[:count]
+    except (genai_errors.APIError, ValueError, json.JSONDecodeError, KeyError) as exc:
+        logger.exception("generate_vocabulary failed")
+        raise TutorError("I couldn't come up with vocabulary right now. "
                          "Please try again in a moment.") from exc
 
 

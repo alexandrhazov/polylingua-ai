@@ -163,6 +163,19 @@ you haven't translated yet) is held in memory and simply regenerates.
 | `TEMPERATURE`       | ❌       | `0.3`              | Sampling temperature (low = consistent)   |
 | `MAX_TOKENS`        | ❌       | `1024`             | Max output tokens per call                |
 | `ROUND_SIZE`        | ❌       | `3`                | Unmastered words served per practice round |
+| `GENERATE_BATCH_SIZE` | ❌     | `10`               | Words the AI picks per `/generate` call    |
+
+---
+
+## Bot commands
+
+| Command     | State           | Does                                                     |
+| ----------- | --------------- | --------------------------------------------------------- |
+| `/start`    | any             | Full reset — re-run level/language/direction setup         |
+| `/settings` | any             | Re-run level/language/direction setup, keeping saved vocab |
+| `/help`     | any             | Usage summary                                              |
+| `/generate` | awaiting vocab  | AI picks `GENERATE_BATCH_SIZE` level-appropriate words instead of you supplying your own (also available as an inline button) |
+| `/skip`     | awaiting translation | Discard the current round (no grade recorded) and serve a different one |
 
 ---
 

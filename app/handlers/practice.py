@@ -7,12 +7,14 @@ import html
 import re
 
 from aiogram import F, Router
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 from aiogram.utils.chat_action import ChatActionSender
 
 from app import db
 from app.config import settings
+from app.handlers.start import _generate_keyboard
 from app.services import ai_tutor
 from app.services.ai_tutor import TutorError
 from app.states.learning import Learning
@@ -52,7 +54,8 @@ async def _start_round(message: Message, state: FSMContext, telegram_id: int) ->
         await state.set_state(Learning.awaiting_vocab)
         await message.answer(
             "🎉 You've mastered every word in your list! Send more vocabulary "
-            "(text or a .txt file) to keep practicing."
+            "(text or a .txt file), or let AI pick some for you.",
+            reply_markup=_generate_keyboard(),
         )
         return
 
@@ -79,6 +82,49 @@ async def _start_round(message: Message, state: FSMContext, telegram_id: int) ->
         f"{numbered}\n\n"
         f"✍️ Send your translation. ({remaining} word(s) left to master.)"
     )
+
+
+async def _generate_words(message: Message, state: FSMContext, telegram_id: int) -> None:
+    """Let the AI pick vocabulary for the user's level instead of them supplying it."""
+    user = await db.get_user(telegram_id)
+    assert user is not None
+    source_language, _ = _languages_for(user)
+
+    async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
+        try:
+            words = await ai_tutor.generate_vocabulary(
+                user.level, source_language, settings.generate_batch_size
+            )
+        except TutorError as exc:
+            await message.answer(str(exc))
+            return
+
+    added = await db.add_words(telegram_id, words)
+    await message.answer(f"Picked {added} {user.level} {source_language} word(s) for you. 🎲")
+    await _start_round(message, state, telegram_id)
+
+
+@router.message(Learning.awaiting_vocab, Command("generate"))
+async def generate_vocab_command(message: Message, state: FSMContext) -> None:
+    await _generate_words(message, state, message.from_user.id)
+
+
+@router.callback_query(Learning.awaiting_vocab, F.data == "generate_vocab")
+async def generate_vocab_button(callback: CallbackQuery, state: FSMContext) -> None:
+    # Acknowledge immediately — the AI calls below can easily exceed
+    # Telegram's short callback-answer window, invalidating the query.
+    await callback.answer()
+    await _generate_words(callback.message, state, callback.from_user.id)  # type: ignore[arg-type]
+
+
+@router.message(Learning.awaiting_translation, Command("skip"))
+async def skip_round(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    word_ids = data.get("word_ids", [])
+    if word_ids:
+        await db.skip_words(word_ids)
+    await message.answer("Skipped — no grade recorded. ⏭️")
+    await _start_round(message, state, message.from_user.id)
 
 
 @router.message(Learning.awaiting_vocab, F.text)

@@ -52,16 +52,41 @@ def _direction_keyboard(native: str, target: str) -> InlineKeyboardMarkup:
     )
 
 
-@router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext) -> None:
+def _generate_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(
+            text="🎲 Let AI pick words for me", callback_data="generate_vocab",
+        )]]
+    )
+
+
+async def _begin_setup(message: Message, state: FSMContext, greeting: str) -> None:
     await state.clear()
     await state.set_state(Learning.choosing_level)
     await message.answer(
+        f"{greeting}\n\nFirst, choose your proficiency level:",
+        reply_markup=_levels_keyboard(),
+    )
+
+
+@router.message(CommandStart())
+async def cmd_start(message: Message, state: FSMContext) -> None:
+    await _begin_setup(
+        message,
+        state,
         f"👋 Welcome to <b>{settings.app_name}</b> — your multilingual AI language tutor!\n\n"
         "I generate practice sentences from your vocabulary and grade your "
-        "translations, in <b>any</b> language and at your level.\n\n"
-        "First, choose your proficiency level:",
-        reply_markup=_levels_keyboard(),
+        "translations, in <b>any</b> language and at your level.",
+    )
+
+
+@router.message(Command("settings"))
+async def cmd_settings(message: Message, state: FSMContext) -> None:
+    await _begin_setup(
+        message,
+        state,
+        "⚙️ Let's update your level, languages, or direction. Your saved "
+        "vocabulary won't be touched.",
     )
 
 
@@ -74,10 +99,15 @@ async def cmd_help(message: Message) -> None:
         "3. Pick a direction: translate INTO your target language (production) "
         "or FROM it (comprehension).\n"
         "4. Send vocabulary words as text, or upload a .txt file with one word "
-        "per line — send as many as you like, I'll remember them all.\n"
+        "per line — send as many as you like, I'll remember them all. Or use "
+        "/generate (or the button) to let AI pick words for your level instead.\n"
         "5. I'll quiz you a few words at a time until you've mastered the "
         "whole list, grading each round with a score and corrections.\n\n"
-        "Use /start any time to change level, languages, or direction."
+        "Other commands:\n"
+        "• /generate — AI picks vocabulary for you\n"
+        "• /skip — skip the current round without grading it\n"
+        "• /settings — change level, languages, or direction\n"
+        "• /start — full reset\n"
     )
 
 
@@ -155,6 +185,9 @@ async def _set_target_language(message: Message, state: FSMContext, language: st
 
 @router.callback_query(Learning.choosing_direction, F.data.startswith("dir:"))
 async def choose_direction(callback: CallbackQuery, state: FSMContext) -> None:
+    # Acknowledge immediately — the DB round-trip below could occasionally be
+    # slow enough to invalidate the callback query otherwise.
+    await callback.answer()
     direction = callback.data.split(":", 1)[1]
     data = await state.update_data(direction=direction)
     await db.upsert_profile(
@@ -172,6 +205,7 @@ async def choose_direction(callback: CallbackQuery, state: FSMContext) -> None:
         "line. Send as many as you like, e.g. hundreds at once — I'll "
         "remember them all and quiz you a few at a time until you've "
         "mastered the whole list.\n\n"
-        "Example: <i>negotiate, resilient, breakthrough</i>"
+        "Example: <i>negotiate, resilient, breakthrough</i>\n\n"
+        "Don't have a list? Tap below and I'll pick words for your level.",
+        reply_markup=_generate_keyboard(),
     )
-    await callback.answer()
