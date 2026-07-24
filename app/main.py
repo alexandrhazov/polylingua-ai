@@ -34,10 +34,12 @@ async def lifespan(_app: FastAPI):
     try:
         yield
     finally:
-        # Shutdown: unhook and release the HTTP session cleanly.
-        await bot.delete_webhook()
+        # Shutdown: just release the HTTP session — do NOT delete the webhook.
+        # Render starts the new instance before stopping the old one, so
+        # deleting here on the outgoing instance would race with (and wipe
+        # out) the webhook the incoming instance just registered.
         await bot.session.close()
-        logger.info("Webhook deleted and bot session closed")
+        logger.info("Bot session closed")
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
