@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(.venv/bin/python -m py_compile app/config.py app/db.py app/main.py app/bot_instance.py app/states/learning.py app/handlers/start.py app/handlers/practice.py app/services/ai_tutor.py)"
+    ]
+  }
+}

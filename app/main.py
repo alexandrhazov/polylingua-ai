@@ -12,6 +12,7 @@ from typing import Optional
 from aiogram.types import Update
 from fastapi import FastAPI, Header, Request, Response
 
+from app import db
 from app.bot_instance import bot, dp
 from app.config import settings
 
@@ -21,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # Startup: register the webhook with Telegram.
+    # Startup: ensure tables exist, then register the webhook with Telegram.
+    await db.init_models()
     await bot.set_webhook(
         url=settings.webhook_full_url,
         secret_token=settings.webhook_secret or None,

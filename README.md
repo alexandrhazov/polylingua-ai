@@ -1,22 +1,34 @@
 # PolyLingua AI 🌍
 
 An asynchronous, production-ready Telegram bot that acts as a **multilingual AI
-language tutor**. Pick a proficiency level (A1–C1) and a target language, send
-vocabulary words, and PolyLingua generates practice sentences for you to
-translate — then grades your translations with an accuracy score, specific
-corrections, and natural alternative phrasing.
+language tutor**. Pick a proficiency level (A1–C1), the language you already
+know, the language you're learning, and a practice direction. Send vocabulary —
+hundreds of words at once if you like, as text or a `.txt` file — and
+PolyLingua remembers all of it, quizzing you a few words at a time with
+AI-generated practice sentences until you've mastered the whole list. Each
+round is graded with an accuracy score, specific corrections, and a natural
+alternative phrasing.
 
 Built with **aiogram 3.x** (Telegram) + **FastAPI** (webhook receiver), powered
-by **Google Gemini** (`gemini-2.5-flash`). Designed for zero-cost deployment
-on **Render's Free Tier** using a webhook architecture.
+by **Google Gemini** (`gemini-3.6-flash`), with vocabulary and progress
+persisted in **Postgres** (e.g. a free [Neon](https://neon.tech) project) so
+nothing is lost on restart. Designed for zero-cost deployment on **Render's
+Free Tier** using a webhook architecture.
 
 ---
 
 ## Features
 
-- **Any language, any level.** Works with Spanish, French, German, Hebrew,
-  Japanese, Arabic — any natural language, including non-Latin/RTL scripts.
-- **Contextual practice.** 3 AI-generated sentences built from *your* vocabulary.
+- **Any language pair, either direction.** Choose your native and target
+  language, then practice native→target (production) or target→native
+  (comprehension).
+- **Persistent vocabulary.** Send 5 words or 5,000 — they're all saved.
+  Practice continues in small rounds across as many sessions as it takes,
+  tracking which words you've mastered.
+- **Text or file upload.** Paste words inline, or upload a `.txt` file with
+  one word per line.
+- **Contextual practice.** AI-generated sentences built from your own
+  unmastered vocabulary, a few at a time.
 - **Structured grading.** Score /10, corrections, and a native-sounding rewrite.
 - **Webhook-based.** Efficient on free-tier hosting (no long-polling loop).
 - **Health endpoint** for uptime pingers to prevent the free instance sleeping.
@@ -28,12 +40,13 @@ on **Render's Free Tier** using a webhook architecture.
 ```
 app/
   config.py            # pydantic-settings — env config
+  db.py                 # async SQLAlchemy engine, User/Word models, persistence helpers
   bot_instance.py      # Bot + Dispatcher, routers
-  main.py              # FastAPI: lifespan webhook setup, POST /webhook, GET /health
-  states/learning.py   # aiogram FSM (level → language → vocab → translation)
+  main.py              # FastAPI: lifespan (DB init + webhook setup), POST /webhook, GET /health
+  states/learning.py   # aiogram FSM (level → native → target → direction → vocab → translation)
   services/ai_tutor.py # Gemini async client: generate_sentences / evaluate_translation
-  handlers/start.py    # /start, level & language selectors
-  handlers/practice.py # vocab collection & translation evaluation
+  handlers/start.py    # /start, level/language/direction setup
+  handlers/practice.py # vocab collection (text/file), auto-cycling rounds, grading
 requirements.txt
 render.yaml            # Render blueprint (zero-click deploy)
 .env.example
@@ -45,7 +58,10 @@ render.yaml            # Render blueprint (zero-click deploy)
 
 1. A Telegram bot token — talk to [@BotFather](https://t.me/BotFather) → `/newbot`.
 2. A Gemini API key — <https://aistudio.google.com/apikey>.
-3. Python 3.11+ locally (the repo pins 3.11 on Render).
+3. A Postgres database — e.g. a free project at <https://neon.tech> (doesn't
+   expire, unlike Render's trial Postgres). Copy its connection string and use
+   the `postgresql+asyncpg://...` scheme.
+4. Python 3.11+ locally (the repo pins 3.11 on Render).
 
 ---
 
@@ -61,7 +77,7 @@ pip install -r requirements.txt
 
 # 2. Configure
 cp .env.example .env
-#   edit .env: BOT_TOKEN, GEMINI_API_KEY
+#   edit .env: BOT_TOKEN, GEMINI_API_KEY, DATABASE_URL
 
 # 3. Start a tunnel (separate terminal)
 ngrok http 8000
@@ -71,7 +87,8 @@ ngrok http 8000
 uvicorn app.main:app --reload --port 8000
 ```
 
-On startup the app registers the webhook with Telegram automatically. Message
+On startup the app creates any missing database tables and registers the
+webhook with Telegram automatically — no manual migration step needed. Message
 your bot on Telegram and send `/start`.
 
 Quick health check:
@@ -92,6 +109,7 @@ curl http://localhost:8000/health
    `render.yaml`, so Render asks for them):
    - `BOT_TOKEN`
    - `GEMINI_API_KEY`
+   - `DATABASE_URL` — your Postgres connection string (e.g. from Neon)
    - `WEBHOOK_URL` — your service URL, e.g. `https://polylingua-ai.onrender.com`
    - `WEBHOOK_SECRET` — auto-generated by Render.
 4. Deploy. On boot the app sets the Telegram webhook to
@@ -115,11 +133,19 @@ uptime pinger at the health endpoint every 5–10 minutes:
 ```
 /start
   └─ choose level (A1–C1)
-       └─ choose or type target language
-            └─ send vocabulary  ──► AI generates 3 sentences
-                 └─ send translation ──► AI returns score + corrections + alt phrasing
-                      └─ send more vocab (loop) or /start to reset
+       └─ choose native language (what you already know)
+            └─ choose target language (what you're learning)
+                 └─ choose direction: native→target or target→native
+                      └─ send vocabulary (text or .txt file, any amount) ──► saved to DB
+                           └─ AI generates a sentence per unmastered word (a few at a time)
+                                └─ send translation ──► AI grades + records mastery
+                                     └─ auto-continues to the next round until the
+                                        whole list is mastered, or /start to reset
 ```
+
+Vocabulary and mastery progress persist in Postgres, so a restart or redeploy
+never loses your word list — only the current in-flight round (the sentences
+you haven't translated yet) is held in memory and simply regenerates.
 
 ---
 
@@ -129,18 +155,20 @@ uptime pinger at the health endpoint every 5–10 minutes:
 | ------------------- | -------- | ------------------ | ---------------------------------------- |
 | `BOT_TOKEN`         | ✅       | —                  | Telegram bot token                       |
 | `GEMINI_API_KEY`    | ✅       | —                  | Gemini API key                           |
+| `DATABASE_URL`      | ✅       | —                  | Async Postgres URL (`postgresql+asyncpg://...`) |
 | `WEBHOOK_URL`       | ✅       | —                  | Public HTTPS base URL                     |
 | `WEBHOOK_SECRET`    | ❌       | `""`               | Shared secret for webhook verification    |
 | `APP_NAME`          | ❌       | `PolyLingua AI`    | Display name                              |
-| `MODEL`             | ❌       | `gemini-2.5-flash` | Gemini model id                           |
+| `MODEL`             | ❌       | `gemini-3.6-flash` | Gemini model id                           |
 | `TEMPERATURE`       | ❌       | `0.3`              | Sampling temperature (low = consistent)   |
 | `MAX_TOKENS`        | ❌       | `1024`             | Max output tokens per call                |
+| `ROUND_SIZE`        | ❌       | `3`                | Unmastered words served per practice round |
 
 ---
 
 ## Notes on the model choice
 
-The bot uses `gemini-2.5-flash` — Google's fastest, most cost-effective tier,
+The bot uses `gemini-3.6-flash` — Google's fastest, most cost-effective tier,
 with strong multilingual coverage. It also still accepts the `temperature`
 parameter, so the low-temperature (0.3) setting for consistent grading works as
 intended. Responses use **structured JSON outputs** (`response_schema`) so

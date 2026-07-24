@@ -12,6 +12,8 @@ services:
         sync: false          # set in the Render dashboard (from @BotFather)
       - key: GEMINI_API_KEY
         sync: false          # set in the Render dashboard
+      - key: DATABASE_URL
+        sync: false          # set in the Render dashboard (e.g. a free Neon Postgres URL)
       - key: WEBHOOK_URL
         sync: false          # e.g. https://polylingua-ai.onrender.com
       - key: WEBHOOK_SECRET

@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     # --- Secrets (required) ---
     bot_token: str  # env: BOT_TOKEN — from @BotFather
     gemini_api_key: str  # env: GEMINI_API_KEY
+    # Async SQLAlchemy URL, e.g. postgresql+asyncpg://user:pass@host/db?ssl=require
+    database_url: str  # env: DATABASE_URL
 
     # --- Webhook ---
     # Public base URL of the deployed service, e.g. https://polylingua-ai.onrender.com
@@ -32,9 +34,14 @@ class Settings(BaseSettings):
     # --- Product / model ---
     app_name: str = "PolyLingua AI"
     # Gemini's fastest, most cost-effective tier with strong multilingual coverage.
-    model: str = "gemini-2.5-flash"
+    model: str = "gemini-3.6-flash"
     temperature: float = 0.3
     max_tokens: int = 1024
+
+    # --- Practice rounds ---
+    # How many not-yet-mastered words to serve per round when auto-cycling
+    # through a large vocabulary batch.
+    round_size: int = 3
 
     @property
     def webhook_full_url(self) -> str:
