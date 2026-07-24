@@ -21,7 +21,13 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-client = AsyncGroq(api_key=settings.groq_api_key)
+# Bounded timeout + a single retry: the SDK's defaults (no timeout, 2 retries
+# with exponential backoff honoring the server's suggested delay) can let one
+# rate-limited call hang for minutes before finally raising — which felt like
+# the whole bot going silent, since that one slow call held up the reply the
+# user was waiting on. Failing fast means TutorError reaches the user quickly
+# instead.
+client = AsyncGroq(api_key=settings.groq_api_key, timeout=20.0, max_retries=1)
 
 # --- System prompt ---------------------------------------------------------
 # Forces the model to support ANY natural language and to calibrate difficulty
