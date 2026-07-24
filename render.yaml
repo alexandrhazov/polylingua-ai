@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: polylingua-ai
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: BOT_TOKEN
+        sync: false          # set in the Render dashboard (from @BotFather)
+      - key: ANTHROPIC_API_KEY
+        sync: false          # set in the Render dashboard
+      - key: WEBHOOK_URL
+        sync: false          # e.g. https://polylingua-ai.onrender.com
+      - key: WEBHOOK_SECRET
+        generateValue: true  # Render generates a random secret token
