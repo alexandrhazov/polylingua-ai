@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # --- Secrets (required) ---
     bot_token: str  # env: BOT_TOKEN — from @BotFather
-    anthropic_api_key: str  # env: ANTHROPIC_API_KEY
+    gemini_api_key: str  # env: GEMINI_API_KEY
 
     # --- Webhook ---
     # Public base URL of the deployed service, e.g. https://polylingua-ai.onrender.com
@@ -31,9 +31,8 @@ class Settings(BaseSettings):
 
     # --- Product / model ---
     app_name: str = "PolyLingua AI"
-    # NOTE: current Anthropic model id. The spec's "claude-3-5-haiku" is retired;
-    # Haiku 4.5 is the cheapest tier and still accepts `temperature`.
-    model: str = "claude-haiku-4-5"
+    # Gemini's fastest, most cost-effective tier with strong multilingual coverage.
+    model: str = "gemini-2.5-flash"
     temperature: float = 0.3
     max_tokens: int = 1024
 
