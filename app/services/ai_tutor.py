@@ -1,9 +1,12 @@
-"""AI tutor service — wraps the Gemini API for sentence generation and grading.
+"""AI tutor service — wraps Groq's OpenAI-compatible chat API for sentence
+generation and grading.
 
-Uses the async google-genai SDK with structured (JSON-schema) outputs so
-responses parse reliably. The model, temperature, and token budget all come
-from ``settings`` so there are no hardcoded values scattered across the
-codebase.
+Uses Groq's async client with JSON mode (``response_format={"type":
+"json_object"}``) so responses parse as valid JSON. Unlike Gemini's
+schema-constrained structured output, JSON mode only guarantees valid JSON
+syntax — not a specific shape — so each prompt spells out the exact structure
+expected. The model, temperature, and token budget all come from ``settings``
+so there are no hardcoded values scattered across the codebase.
 """
 from __future__ import annotations
 
@@ -11,20 +14,20 @@ import json
 import logging
 from typing import Any
 
-from google import genai
-from google.genai import errors as genai_errors
-from google.genai import types
+import groq
+from groq import AsyncGroq
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-client = genai.Client(api_key=settings.gemini_api_key)
+client = AsyncGroq(api_key=settings.groq_api_key)
 
 # --- System prompt ---------------------------------------------------------
 # Forces the model to support ANY natural language and to calibrate difficulty
 # to the requested CEFR proficiency level. Kept as a single template so the
-# same instructions drive both generation and grading.
+# same instructions drive both generation and grading. Must mention "JSON"
+# explicitly — Groq's JSON mode requires it somewhere in the messages.
 _SYSTEM_PROMPT = (
     "You are {app_name}, an expert multilingual language tutor. "
     "You fluently support EVERY natural language a learner might request — "
@@ -32,64 +35,29 @@ _SYSTEM_PROMPT = (
     "any other — including right-to-left and non-Latin scripts. "
     "Always honor the requested languages and CEFR proficiency level "
     "(A1 = beginner ... C1 = advanced), calibrating vocabulary and grammar "
-    "complexity to that level. Respond ONLY with the requested JSON structure; "
-    "never add commentary outside it."
+    "complexity to that level. Respond ONLY with a single valid JSON object "
+    "matching the structure requested in the prompt; never add commentary "
+    "or markdown fences outside it."
 )
-
-# JSON schemas for structured outputs (Gemini's OpenAPI-subset Schema format).
-# Note: numeric/length constraints and `additionalProperties` are not
-# supported, so ranges are enforced via the prompt.
-_SENTENCES_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "sentences": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Practice sentences, as requested by the prompt.",
-        }
-    },
-    "required": ["sentences"],
-}
-
-_EVALUATION_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "score": {
-            "type": "number",
-            "description": "Accuracy score from 0 to 10, one decimal allowed.",
-        },
-        "corrections": {
-            "type": "string",
-            "description": "Specific grammar/vocabulary corrections and notes. "
-            "Empty string if the translation is already correct.",
-        },
-        "alternative": {
-            "type": "string",
-            "description": "A natural, native-sounding alternative phrasing.",
-        },
-    },
-    "required": ["score", "corrections", "alternative"],
-}
 
 
 def _system() -> str:
     return _SYSTEM_PROMPT.format(app_name=settings.app_name)
 
 
-async def _structured_call(prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
-    """Make one Gemini call constrained to ``schema`` and return parsed JSON."""
-    response = await client.aio.models.generate_content(
+async def _structured_call(prompt: str) -> dict[str, Any]:
+    """Make one Groq call in JSON mode and return the parsed object."""
+    response = await client.chat.completions.create(
         model=settings.model,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=_system(),
-            temperature=settings.temperature,
-            max_output_tokens=settings.max_tokens,
-            response_mime_type="application/json",
-            response_schema=schema,
-        ),
+        temperature=settings.temperature,
+        max_tokens=settings.max_tokens,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": _system()},
+            {"role": "user", "content": prompt},
+        ],
     )
-    return json.loads(response.text)
+    return json.loads(response.choices[0].message.content)
 
 
 async def generate_sentences(words: list[str], level: str, source_language: str) -> list[str]:
@@ -108,16 +76,18 @@ async def generate_sentences(words: list[str], level: str, source_language: str)
         f"Write one distinct, natural sentence per vocabulary word, all in "
         f"{source_language}. Each sentence must use its corresponding "
         "vocabulary word and suit the proficiency level. The learner will "
-        "translate these into another language. Return them in the "
-        "`sentences` array, in the same order as the vocabulary words."
+        "translate these into another language.\n\n"
+        'Respond with ONLY a JSON object of this exact form: '
+        '{"sentences": ["...", "..."]} — exactly one sentence per vocabulary '
+        "word, in the same order as the vocabulary words."
     )
     try:
-        data = await _structured_call(prompt, _SENTENCES_SCHEMA)
+        data = await _structured_call(prompt)
         sentences = [s.strip() for s in data.get("sentences", []) if s.strip()]
         if not sentences:
             raise ValueError("model returned no sentences")
         return sentences[: len(words)]
-    except (genai_errors.APIError, ValueError, json.JSONDecodeError, KeyError) as exc:
+    except (groq.APIError, ValueError, json.JSONDecodeError, KeyError, TypeError) as exc:
         logger.exception("generate_sentences failed")
         raise TutorError("I couldn't generate practice sentences right now. "
                          "Please try again in a moment.") from exc
@@ -135,16 +105,17 @@ async def generate_random_sentences(level: str, language: str, count: int) -> li
         f"Proficiency level (CEFR): {level}\n\n"
         f"Write exactly {count} distinct, natural, useful sentences in "
         f"{language}, suited to a {level} learner. Vary the topics and "
-        "vocabulary across the sentences. The learner will translate them. "
-        "Return them in the `sentences` array."
+        "vocabulary across the sentences. The learner will translate them.\n\n"
+        'Respond with ONLY a JSON object of this exact form: '
+        f'{{"sentences": ["...", "..."]}} — containing exactly {count} sentences.'
     )
     try:
-        data = await _structured_call(prompt, _SENTENCES_SCHEMA)
+        data = await _structured_call(prompt)
         sentences = [s.strip() for s in data.get("sentences", []) if s.strip()]
         if not sentences:
             raise ValueError("model returned no sentences")
         return sentences[:count]
-    except (genai_errors.APIError, ValueError, json.JSONDecodeError, KeyError) as exc:
+    except (groq.APIError, ValueError, json.JSONDecodeError, KeyError, TypeError) as exc:
         logger.exception("generate_random_sentences failed")
         raise TutorError("I couldn't generate practice sentences right now. "
                          "Please try again in a moment.") from exc
@@ -163,15 +134,16 @@ async def evaluate_translation(
         f"{original}\n\n"
         f"The learner translated them into {dest_language}, submitting:\n"
         f"{user_translation}\n\n"
-        f"Evaluate the {dest_language} translation. Provide:\n"
-        "1. `score`: accuracy from 0 to 10 (one decimal place allowed).\n"
-        "2. `corrections`: specific grammar and vocabulary notes (empty string "
-        "if perfect).\n"
-        f"3. `alternative`: a natural, native-sounding alternative phrasing in "
-        f"{dest_language}."
+        f"Evaluate the {dest_language} translation.\n\n"
+        'Respond with ONLY a JSON object of this exact form: '
+        '{"score": <number 0-10, one decimal allowed>, '
+        '"corrections": "<specific grammar/vocabulary notes, empty string if '
+        'the translation is already correct>", '
+        '"alternative": "<a natural, native-sounding alternative phrasing in '
+        f'{dest_language}>"}}'
     )
     try:
-        data = await _structured_call(prompt, _EVALUATION_SCHEMA)
+        data = await _structured_call(prompt)
         # Clamp score defensively into 0-10.
         score = max(0.0, min(10.0, float(data.get("score", 0))))
         return {
@@ -179,7 +151,7 @@ async def evaluate_translation(
             "corrections": str(data.get("corrections", "")).strip(),
             "alternative": str(data.get("alternative", "")).strip(),
         }
-    except (genai_errors.APIError, ValueError, json.JSONDecodeError, KeyError) as exc:
+    except (groq.APIError, ValueError, json.JSONDecodeError, KeyError, TypeError) as exc:
         logger.exception("evaluate_translation failed")
         raise TutorError("I couldn't evaluate your translation right now. "
                          "Please try again in a moment.") from exc

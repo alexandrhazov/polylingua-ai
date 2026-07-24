@@ -3,10 +3,6 @@ services:
     name: polylingua-ai
     runtime: python
     plan: free
-    # Frankfurt (and other EU/UK/Switzerland regions) are blocked by Google's
-    # Gemini Developer API ("User location is not supported"). Oregon avoids
-    # that restriction while keeping the free API key (no Vertex AI/billing
-    # needed). Region can't be changed on an existing service — recreate it.
     region: oregon
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
@@ -15,7 +11,7 @@ services:
         value: 3.11.9
       - key: BOT_TOKEN
         sync: false          # set in the Render dashboard (from @BotFather)
-      - key: GEMINI_API_KEY
+      - key: GROQ_API_KEY
         sync: false          # set in the Render dashboard
       - key: DATABASE_URL
         sync: false          # set in the Render dashboard: use a restricted DML-only

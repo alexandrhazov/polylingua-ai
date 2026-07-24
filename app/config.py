@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # --- Secrets (required) ---
     bot_token: str  # env: BOT_TOKEN — from @BotFather
-    gemini_api_key: str  # env: GEMINI_API_KEY
+    groq_api_key: str  # env: GROQ_API_KEY
     # Async SQLAlchemy URL, e.g. postgresql+asyncpg://user:pass@host/db?ssl=require
     database_url: str  # env: DATABASE_URL
 
@@ -33,8 +33,8 @@ class Settings(BaseSettings):
 
     # --- Product / model ---
     app_name: str = "PolyLingua AI"
-    # Gemini's fastest, most cost-effective tier with strong multilingual coverage.
-    model: str = "gemini-3.6-flash"
+    # Groq's free tier: fast open-weight inference, no card required.
+    model: str = "llama-3.3-70b-versatile"
     temperature: float = 0.3
     max_tokens: int = 1024
 
