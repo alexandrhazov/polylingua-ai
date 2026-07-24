@@ -15,7 +15,13 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.config import settings
 
-engine = create_async_engine(settings.database_url)
+# statement_cache_size=0 disables asyncpg's prepared-statement cache, which is
+# required when connecting through Neon's PgBouncer pooler (transaction-mode
+# pooling doesn't support reusing prepared statements across connections).
+engine = create_async_engine(
+    settings.database_url,
+    connect_args={"statement_cache_size": 0},
+)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
 # Score at/above this (out of 10) retires a word from the practice rotation.
