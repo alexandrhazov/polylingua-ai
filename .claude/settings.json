@@ -3,7 +3,12 @@
     "allow": [
       "WebSearch",
       "Bash(.venv/bin/python -m py_compile app/config.py app/db.py app/main.py app/bot_instance.py app/states/learning.py app/handlers/start.py app/handlers/practice.py app/services/ai_tutor.py)",
-      "Bash(.venv/bin/python -c \"import secrets; print\\(secrets.token_urlsafe\\(24\\)\\)\")"
+      "Bash(.venv/bin/python -c \"import secrets; print\\(secrets.token_urlsafe\\(24\\)\\)\")",
+      "Bash(git merge *)",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(.venv/bin/python -m py_compile app/config.py app/services/ai_tutor.py)"
     ]
   }
 }
