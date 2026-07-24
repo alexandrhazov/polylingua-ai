@@ -1,15 +1,15 @@
 """Persistent storage: async SQLAlchemy engine, models, and query helpers.
 
-Backed by Postgres (Neon free tier by default) so vocabulary and practice
-progress survive restarts/redeploys, unlike the in-memory FSM storage used
-for transient conversation state.
+Backed by Postgres (Neon free tier by default) so vocabulary, practice
+progress, and conversation state (see app/fsm_storage.py) all survive
+restarts/redeploys.
 """
 from __future__ import annotations
 
 import datetime as dt
 from typing import Sequence
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, func, select
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, String, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -58,6 +58,19 @@ class Word(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped[User] = relationship(back_populates="words")
+
+
+class FSMState(Base):
+    """Backs aiogram's FSM storage (see app/fsm_storage.py) so conversation
+    state — including in-flight round data — survives restarts/redeploys
+    instead of living only in process RAM.
+    """
+
+    __tablename__ = "fsm_state"
+
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    state: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 async def init_models() -> None:

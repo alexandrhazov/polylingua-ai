@@ -2,12 +2,17 @@
 
 An asynchronous, production-ready Telegram bot that acts as a **multilingual AI
 language tutor**. Pick a proficiency level (A1–C1), the language you already
-know, the language you're learning, and a practice direction. Send vocabulary —
-hundreds of words at once if you like, as text or a `.txt` file — and
-PolyLingua remembers all of it, quizzing you a few words at a time with
-AI-generated practice sentences until you've mastered the whole list. Each
-round is graded with an accuracy score, specific corrections, and a natural
-alternative phrasing.
+know, the language you're learning, and a practice direction. Then choose how
+you want to practice:
+
+- **Your own vocabulary** — send words (text or a `.txt` file), any amount,
+  and PolyLingua remembers all of it, quizzing you a few at a time until
+  you've mastered the whole list.
+- **Random practice** (`/generate` or the button) — no list needed. The AI
+  picks standalone sentences for your level on the fly, nothing saved.
+
+Either way, each round is graded with an accuracy score, specific corrections,
+and a natural alternative phrasing.
 
 Built with **aiogram 3.x** (Telegram) + **FastAPI** (webhook receiver), powered
 by **Google Gemini** (`gemini-3.6-flash`), with vocabulary and progress
@@ -27,8 +32,8 @@ Free Tier** using a webhook architecture.
   tracking which words you've mastered.
 - **Text or file upload.** Paste words inline, or upload a `.txt` file with
   one word per line.
-- **Contextual practice.** AI-generated sentences built from your own
-  unmastered vocabulary, a few at a time.
+- **Random practice mode.** No list to supply — the AI generates sentences
+  for your level directly, fully stateless (no database involved at all).
 - **Structured grading.** Score /10, corrections, and a native-sounding rewrite.
 - **Webhook-based.** Efficient on free-tier hosting (no long-polling loop).
 - **Health endpoint** for uptime pingers to prevent the free instance sleeping.
@@ -41,6 +46,7 @@ Free Tier** using a webhook architecture.
 app/
   config.py            # pydantic-settings — env config
   db.py                 # async SQLAlchemy engine, User/Word models, persistence helpers
+  fsm_storage.py        # Postgres-backed aiogram FSM storage (conversation state)
   bot_instance.py      # Bot + Dispatcher, routers
   main.py              # FastAPI: lifespan (DB init + webhook setup), POST /webhook, GET /health
   states/learning.py   # aiogram FSM (level → native → target → direction → vocab → translation)
@@ -136,16 +142,18 @@ uptime pinger at the health endpoint every 5–10 minutes:
        └─ choose native language (what you already know)
             └─ choose target language (what you're learning)
                  └─ choose direction: native→target or target→native
-                      └─ send vocabulary (text or .txt file, any amount) ──► saved to DB
-                           └─ AI generates a sentence per unmastered word (a few at a time)
-                                └─ send translation ──► AI grades + records mastery
-                                     └─ auto-continues to the next round until the
-                                        whole list is mastered, or /start to reset
+                      ├─ send vocabulary (text or .txt file, any amount) ──► saved to DB
+                      │       └─ AI generates a sentence per unmastered word (a few at a time)
+                      │            └─ send translation ──► AI grades + records mastery
+                      │                 └─ auto-continues until the whole list is mastered
+                      └─ or /generate (no list) ──► AI generates standalone sentences
+                              └─ send translation ──► AI grades (nothing stored)
+                                   └─ auto-continues with a fresh random round
 ```
 
-Vocabulary and mastery progress persist in Postgres, so a restart or redeploy
-never loses your word list — only the current in-flight round (the sentences
-you haven't translated yet) is held in memory and simply regenerates.
+Vocabulary, mastery progress, *and* conversation state (which step you're on,
+plus the current round's sentences) all persist in Postgres — a restart or
+redeploy never strands you mid-conversation or loses your word list.
 
 ---
 
@@ -162,8 +170,7 @@ you haven't translated yet) is held in memory and simply regenerates.
 | `MODEL`             | ❌       | `gemini-3.6-flash` | Gemini model id                           |
 | `TEMPERATURE`       | ❌       | `0.3`              | Sampling temperature (low = consistent)   |
 | `MAX_TOKENS`        | ❌       | `1024`             | Max output tokens per call                |
-| `ROUND_SIZE`        | ❌       | `3`                | Unmastered words served per practice round |
-| `GENERATE_BATCH_SIZE` | ❌     | `10`               | Words the AI picks per `/generate` call    |
+| `ROUND_SIZE`        | ❌       | `3`                | Sentences per round (vocab or random mode) |
 
 ---
 
@@ -174,7 +181,7 @@ you haven't translated yet) is held in memory and simply regenerates.
 | `/start`    | any             | Full reset — re-run level/language/direction setup         |
 | `/settings` | any             | Re-run level/language/direction setup, keeping saved vocab |
 | `/help`     | any             | Usage summary                                              |
-| `/generate` | awaiting vocab  | AI picks `GENERATE_BATCH_SIZE` level-appropriate words instead of you supplying your own (also available as an inline button) |
+| `/generate` | awaiting vocab  | Random practice mode: AI generates standalone sentences for your level, no list or DB involved (also available as an inline button) |
 | `/skip`     | awaiting translation | Discard the current round (no grade recorded) and serve a different one |
 
 ---

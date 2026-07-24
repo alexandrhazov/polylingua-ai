@@ -1,5 +1,13 @@
-"""Vocabulary collection (text or file), sentence generation, and translation
-evaluation — auto-cycling through a persisted word list a few words at a time.
+"""Two practice modes:
+
+- Vocabulary mode: learner supplies words (text or file), persisted and
+  auto-cycled through with mastery tracking (see app/db.py).
+- Random mode (/generate or the button): fully stateless — the AI picks its
+  own sentences for the learner's level/language each round, nothing is
+  stored, no vocabulary or database involved.
+
+A round's ``word_ids`` FSM data (present for vocabulary mode, absent for
+random mode) is what distinguishes which mode drives grading/continuation.
 """
 from __future__ import annotations
 
@@ -40,11 +48,15 @@ def _languages_for(user: db.User) -> tuple[str, str]:
     return user.target_language, user.native_language
 
 
+def _numbered_sentences(sentences: list[str]) -> str:
+    return "\n".join(f"{i}. {html.escape(s)}" for i, s in enumerate(sentences, start=1))
+
+
 async def _start_round(message: Message, state: FSMContext, telegram_id: int) -> None:
     """Fetch the next batch of unmastered words and generate practice sentences.
 
     If there are no unmastered words (none stored yet, or all mastered), asks
-    the learner to send more vocabulary instead.
+    the learner to send more vocabulary, or use random practice instead.
     """
     user = await db.get_user(telegram_id)
     assert user is not None  # profile is created before awaiting_vocab is reached
@@ -54,7 +66,7 @@ async def _start_round(message: Message, state: FSMContext, telegram_id: int) ->
         await state.set_state(Learning.awaiting_vocab)
         await message.answer(
             "🎉 You've mastered every word in your list! Send more vocabulary "
-            "(text or a .txt file), or let AI pick some for you.",
+            "(text or a .txt file), or let AI quiz you at random instead.",
             reply_markup=_generate_keyboard(),
         )
         return
@@ -73,58 +85,64 @@ async def _start_round(message: Message, state: FSMContext, telegram_id: int) ->
     await state.update_data(sentences=sentences, word_ids=[w.id for w in words])
     await state.set_state(Learning.awaiting_translation)
 
-    numbered = "\n".join(
-        f"{i}. {html.escape(s)}" for i, s in enumerate(sentences, start=1)
-    )
     remaining = await db.remaining_count(telegram_id)
     await message.answer(
         f"Here are your <b>{source_language}</b> practice sentences ({user.level}):\n\n"
-        f"{numbered}\n\n"
+        f"{_numbered_sentences(sentences)}\n\n"
         f"✍️ Send your translation. ({remaining} word(s) left to master.)"
     )
 
 
-async def _generate_words(message: Message, state: FSMContext, telegram_id: int) -> None:
-    """Let the AI pick vocabulary for the user's level instead of them supplying it."""
+async def _start_random_round(message: Message, state: FSMContext, telegram_id: int) -> None:
+    """Generate standalone practice sentences with no vocabulary or DB involved."""
     user = await db.get_user(telegram_id)
     assert user is not None
     source_language, _ = _languages_for(user)
 
     async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
         try:
-            words = await ai_tutor.generate_vocabulary(
-                user.level, source_language, settings.generate_batch_size
+            sentences = await ai_tutor.generate_random_sentences(
+                user.level, source_language, settings.round_size
             )
         except TutorError as exc:
             await message.answer(str(exc))
             return
 
-    added = await db.add_words(telegram_id, words)
-    await message.answer(f"Picked {added} {user.level} {source_language} word(s) for you. 🎲")
-    await _start_round(message, state, telegram_id)
+    # No word_ids: marks this round as random/stateless for evaluate()/skip().
+    await state.update_data(sentences=sentences, word_ids=[])
+    await state.set_state(Learning.awaiting_translation)
+
+    await message.answer(
+        f"Here are your <b>{source_language}</b> practice sentences ({user.level}):\n\n"
+        f"{_numbered_sentences(sentences)}\n\n"
+        "✍️ Send your translation."
+    )
 
 
 @router.message(Learning.awaiting_vocab, Command("generate"))
-async def generate_vocab_command(message: Message, state: FSMContext) -> None:
-    await _generate_words(message, state, message.from_user.id)
+async def random_practice_command(message: Message, state: FSMContext) -> None:
+    await _start_random_round(message, state, message.from_user.id)
 
 
-@router.callback_query(Learning.awaiting_vocab, F.data == "generate_vocab")
-async def generate_vocab_button(callback: CallbackQuery, state: FSMContext) -> None:
-    # Acknowledge immediately — the AI calls below can easily exceed
+@router.callback_query(Learning.awaiting_vocab, F.data == "random_practice")
+async def random_practice_button(callback: CallbackQuery, state: FSMContext) -> None:
+    # Acknowledge immediately — the AI call below can easily exceed
     # Telegram's short callback-answer window, invalidating the query.
     await callback.answer()
-    await _generate_words(callback.message, state, callback.from_user.id)  # type: ignore[arg-type]
+    await _start_random_round(callback.message, state, callback.from_user.id)  # type: ignore[arg-type]
 
 
 @router.message(Learning.awaiting_translation, Command("skip"))
 async def skip_round(message: Message, state: FSMContext) -> None:
+    telegram_id = message.from_user.id
     data = await state.get_data()
     word_ids = data.get("word_ids", [])
+    await message.answer("Skipped — no grade recorded. ⏭️")
     if word_ids:
         await db.skip_words(word_ids)
-    await message.answer("Skipped — no grade recorded. ⏭️")
-    await _start_round(message, state, message.from_user.id)
+        await _start_round(message, state, telegram_id)
+    else:
+        await _start_random_round(message, state, telegram_id)
 
 
 @router.message(Learning.awaiting_vocab, F.text)
@@ -186,12 +204,14 @@ async def evaluate(message: Message, state: FSMContext) -> None:
             await message.answer(str(exc))
             return
 
-    if word_ids:
-        await db.record_round_result(word_ids, result["score"])
-
     feedback = ai_tutor.format_feedback(result)
     await message.answer(f"{feedback}\n\n———")
-    await _start_round(message, state, telegram_id)
+
+    if word_ids:
+        await db.record_round_result(word_ids, result["score"])
+        await _start_round(message, state, telegram_id)
+    else:
+        await _start_random_round(message, state, telegram_id)
 
 
 @router.message(Learning.awaiting_vocab)
@@ -202,3 +222,12 @@ async def vocab_needs_text(message: Message) -> None:
 @router.message(Learning.awaiting_translation)
 async def translation_needs_text(message: Message) -> None:
     await message.answer("Please send your translation as text. 🙂")
+
+
+@router.message()
+async def fallback(message: Message) -> None:
+    """Catches anything with no matching state (e.g. a brand-new user texting
+    before /start, or state that predates this app version). Registered last
+    so every more specific handler above gets first refusal.
+    """
+    await message.answer("Not sure what we're doing yet — send /start to begin. 🙂")

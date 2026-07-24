@@ -45,22 +45,10 @@ _SENTENCES_SCHEMA: dict[str, Any] = {
         "sentences": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "One practice sentence per requested vocabulary word.",
+            "description": "Practice sentences, as requested by the prompt.",
         }
     },
     "required": ["sentences"],
-}
-
-_VOCABULARY_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "words": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Vocabulary words or short phrases appropriate for the level.",
-        }
-    },
-    "required": ["words"],
 }
 
 _EVALUATION_SCHEMA: dict[str, Any] = {
@@ -135,30 +123,30 @@ async def generate_sentences(words: list[str], level: str, source_language: str)
                          "Please try again in a moment.") from exc
 
 
-async def generate_vocabulary(level: str, language: str, count: int) -> list[str]:
-    """Pick ``count`` vocabulary words/phrases in ``language`` for ``level``.
+async def generate_random_sentences(level: str, language: str, count: int) -> list[str]:
+    """Generate ``count`` standalone practice sentences in ``language`` for ``level``.
 
-    Used when the learner doesn't want to supply their own word list — the
-    model chooses common, level-appropriate vocabulary instead. Raises
-    ``TutorError`` on API/parse failure.
+    Used for stateless practice, when the learner hasn't supplied their own
+    vocabulary — the model picks its own content, nothing is tracked or
+    stored. Raises ``TutorError`` on API/parse failure.
     """
     prompt = (
-        f"Language: {language}\n"
+        f"Sentence language: {language}\n"
         f"Proficiency level (CEFR): {level}\n\n"
-        f"Pick exactly {count} useful, common vocabulary words or short "
-        f"phrases in {language}, appropriate for a {level} learner. Prefer "
-        "variety across nouns, verbs, and adjectives rather than a single "
-        "theme. Return them in the `words` array."
+        f"Write exactly {count} distinct, natural, useful sentences in "
+        f"{language}, suited to a {level} learner. Vary the topics and "
+        "vocabulary across the sentences. The learner will translate them. "
+        "Return them in the `sentences` array."
     )
     try:
-        data = await _structured_call(prompt, _VOCABULARY_SCHEMA)
-        words = [w.strip() for w in data.get("words", []) if w.strip()]
-        if not words:
-            raise ValueError("model returned no vocabulary")
-        return words[:count]
+        data = await _structured_call(prompt, _SENTENCES_SCHEMA)
+        sentences = [s.strip() for s in data.get("sentences", []) if s.strip()]
+        if not sentences:
+            raise ValueError("model returned no sentences")
+        return sentences[:count]
     except (genai_errors.APIError, ValueError, json.JSONDecodeError, KeyError) as exc:
-        logger.exception("generate_vocabulary failed")
-        raise TutorError("I couldn't come up with vocabulary right now. "
+        logger.exception("generate_random_sentences failed")
+        raise TutorError("I couldn't generate practice sentences right now. "
                          "Please try again in a moment.") from exc
 
 

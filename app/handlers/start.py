@@ -55,7 +55,7 @@ def _direction_keyboard(native: str, target: str) -> InlineKeyboardMarkup:
 def _generate_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(
-            text="🎲 Let AI pick words for me", callback_data="generate_vocab",
+            text="🎲 Quiz me at random", callback_data="random_practice",
         )]]
     )
 
@@ -99,12 +99,13 @@ async def cmd_help(message: Message) -> None:
         "3. Pick a direction: translate INTO your target language (production) "
         "or FROM it (comprehension).\n"
         "4. Send vocabulary words as text, or upload a .txt file with one word "
-        "per line — send as many as you like, I'll remember them all. Or use "
-        "/generate (or the button) to let AI pick words for your level instead.\n"
-        "5. I'll quiz you a few words at a time until you've mastered the "
-        "whole list, grading each round with a score and corrections.\n\n"
+        "per line — send as many as you like, I'll remember them all and quiz "
+        "you a few at a time until you've mastered the whole list. Or skip "
+        "this and use /generate (or the button) for random AI-picked "
+        "sentences instead — no list needed, nothing saved.\n"
+        "5. Either way, I grade each round with a score and corrections.\n\n"
         "Other commands:\n"
-        "• /generate — AI picks vocabulary for you\n"
+        "• /generate — random sentences for your level, no list needed\n"
         "• /skip — skip the current round without grading it\n"
         "• /settings — change level, languages, or direction\n"
         "• /start — full reset\n"
@@ -206,6 +207,6 @@ async def choose_direction(callback: CallbackQuery, state: FSMContext) -> None:
         "remember them all and quiz you a few at a time until you've "
         "mastered the whole list.\n\n"
         "Example: <i>negotiate, resilient, breakthrough</i>\n\n"
-        "Don't have a list? Tap below and I'll pick words for your level.",
+        "Don't have a list? Tap below to get random sentences for your level instead.",
         reply_markup=_generate_keyboard(),
     )

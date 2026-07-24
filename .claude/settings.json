@@ -11,7 +11,9 @@
       "Bash(.venv/bin/python -m py_compile app/config.py app/services/ai_tutor.py)",
       "Bash(.venv/bin/python -m py_compile app/main.py)",
       "Bash(.venv/bin/python -m py_compile app/config.py app/db.py app/services/ai_tutor.py app/handlers/start.py app/handlers/practice.py app/main.py)",
-      "Bash(.venv/bin/python -m py_compile app/handlers/start.py app/handlers/practice.py)"
+      "Bash(.venv/bin/python -m py_compile app/handlers/start.py app/handlers/practice.py)",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(.venv/bin/python -m py_compile app/db.py app/fsm_storage.py app/bot_instance.py app/handlers/practice.py app/handlers/start.py app/main.py)"
     ]
   }
 }

@@ -39,12 +39,10 @@ class Settings(BaseSettings):
     max_tokens: int = 1024
 
     # --- Practice rounds ---
-    # How many not-yet-mastered words to serve per round when auto-cycling
-    # through a large vocabulary batch.
+    # How many sentences per round: either not-yet-mastered words (when the
+    # learner supplied their own vocabulary) or standalone AI-picked sentences
+    # (stateless /generate mode, no vocabulary or DB involved).
     round_size: int = 3
-    # How many words the AI picks per /generate call, for learners who don't
-    # want to supply their own vocabulary.
-    generate_batch_size: int = 10
 
     @property
     def webhook_full_url(self) -> str:
