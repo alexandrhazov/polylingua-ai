@@ -100,7 +100,7 @@ async def cmd_help(message: Message) -> None:
         "or FROM it (comprehension).\n"
         "4. Send vocabulary words as text, or upload a .txt file with one word "
         "per line — send as many as you like, I'll remember them all and quiz "
-        "you a few at a time until you've mastered the whole list. Or skip "
+        "you on them, cycling through the list round after round. Or skip "
         "this and use /generate (or the button) for random AI-picked "
         "sentences instead — no list needed, nothing saved.\n"
         "5. Either way, I grade each round with a score and corrections.\n\n"
@@ -204,8 +204,8 @@ async def choose_direction(callback: CallbackQuery, state: FSMContext) -> None:
         "Send me vocabulary words to practice — as a message (comma-, space-, "
         "or newline-separated) or as a <b>.txt file</b> with one word per "
         "line. Send as many as you like, e.g. hundreds at once — I'll "
-        "remember them all and quiz you a few at a time until you've "
-        "mastered the whole list.\n\n"
+        "remember them all and quiz you on them, a few at a time, cycling "
+        "through the list round after round.\n\n"
         "Example: <i>negotiate, resilient, breakthrough</i>\n\n"
         "Don't have a list? Tap below to get random sentences for your level instead.",
         reply_markup=_generate_keyboard(),

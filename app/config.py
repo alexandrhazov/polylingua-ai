@@ -39,9 +39,9 @@ class Settings(BaseSettings):
     max_tokens: int = 1024
 
     # --- Practice rounds ---
-    # How many sentences per round: either not-yet-mastered words (when the
-    # learner supplied their own vocabulary) or standalone AI-picked sentences
-    # (stateless /generate mode, no vocabulary or DB involved).
+    # How many sentences per round: either words cycled from the learner's own
+    # vocabulary or standalone AI-picked sentences (stateless /generate mode,
+    # no vocabulary or DB involved).
     round_size: int = 3
 
     @property

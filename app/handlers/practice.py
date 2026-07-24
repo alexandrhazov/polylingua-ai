@@ -1,7 +1,8 @@
 """Two practice modes:
 
 - Vocabulary mode: learner supplies words (text or file), persisted and
-  auto-cycled through with mastery tracking (see app/db.py).
+  cycled through forever in rounds (least-recently-practiced first). No
+  mastery concept — a word never "graduates" out of rotation.
 - Random mode (/generate or the button): fully stateless — the AI picks its
   own sentences for the learner's level/language each round, nothing is
   stored, no vocabulary or database involved.
@@ -53,10 +54,9 @@ def _numbered_sentences(sentences: list[str]) -> str:
 
 
 async def _start_round(message: Message, state: FSMContext, telegram_id: int) -> None:
-    """Fetch the next batch of unmastered words and generate practice sentences.
-
-    If there are no unmastered words (none stored yet, or all mastered), asks
-    the learner to send more vocabulary, or use random practice instead.
+    """Fetch the next batch of words (least-recently-practiced first) and
+    generate practice sentences. If no words are saved yet, asks the learner
+    to send some, or use random practice instead.
     """
     user = await db.get_user(telegram_id)
     assert user is not None  # profile is created before awaiting_vocab is reached
@@ -65,8 +65,8 @@ async def _start_round(message: Message, state: FSMContext, telegram_id: int) ->
     if not words:
         await state.set_state(Learning.awaiting_vocab)
         await message.answer(
-            "🎉 You've mastered every word in your list! Send more vocabulary "
-            "(text or a .txt file), or let AI quiz you at random instead.",
+            "You don't have any saved vocabulary yet. Send some (text or a "
+            ".txt file), or let AI quiz you at random instead.",
             reply_markup=_generate_keyboard(),
         )
         return
@@ -85,11 +85,10 @@ async def _start_round(message: Message, state: FSMContext, telegram_id: int) ->
     await state.update_data(sentences=sentences, word_ids=[w.id for w in words])
     await state.set_state(Learning.awaiting_translation)
 
-    remaining = await db.remaining_count(telegram_id)
     await message.answer(
         f"Here are your <b>{source_language}</b> practice sentences ({user.level}):\n\n"
         f"{_numbered_sentences(sentences)}\n\n"
-        f"✍️ Send your translation. ({remaining} word(s) left to master.)"
+        "✍️ Send your translation."
     )
 
 
@@ -208,7 +207,7 @@ async def evaluate(message: Message, state: FSMContext) -> None:
     await message.answer(f"{feedback}\n\n———")
 
     if word_ids:
-        await db.record_round_result(word_ids, result["score"])
+        await db.record_round_result(word_ids)
         await _start_round(message, state, telegram_id)
     else:
         await _start_random_round(message, state, telegram_id)

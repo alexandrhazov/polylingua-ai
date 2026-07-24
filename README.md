@@ -6,8 +6,8 @@ know, the language you're learning, and a practice direction. Then choose how
 you want to practice:
 
 - **Your own vocabulary** — send words (text or a `.txt` file), any amount,
-  and PolyLingua remembers all of it, quizzing you a few at a time until
-  you've mastered the whole list.
+  and PolyLingua remembers all of it, quizzing you a few at a time, cycling
+  through the list round after round.
 - **Random practice** (`/generate` or the button) — no list needed. The AI
   picks standalone sentences for your level on the fly, nothing saved.
 
@@ -27,9 +27,9 @@ Free Tier** using a webhook architecture.
 - **Any language pair, either direction.** Choose your native and target
   language, then practice native→target (production) or target→native
   (comprehension).
-- **Persistent vocabulary.** Send 5 words or 5,000 — they're all saved.
-  Practice continues in small rounds across as many sessions as it takes,
-  tracking which words you've mastered.
+- **Persistent vocabulary.** Send 5 words or 5,000 — they're all saved and
+  cycled through in small rounds, least-recently-practiced first, across as
+  many sessions as it takes. No "mastery" — just translate and get graded.
 - **Text or file upload.** Paste words inline, or upload a `.txt` file with
   one word per line.
 - **Random practice mode.** No list to supply — the AI generates sentences
@@ -143,15 +143,15 @@ uptime pinger at the health endpoint every 5–10 minutes:
             └─ choose target language (what you're learning)
                  └─ choose direction: native→target or target→native
                       ├─ send vocabulary (text or .txt file, any amount) ──► saved to DB
-                      │       └─ AI generates a sentence per unmastered word (a few at a time)
-                      │            └─ send translation ──► AI grades + records mastery
-                      │                 └─ auto-continues until the whole list is mastered
+                      │       └─ AI generates a sentence per word (a few at a time)
+                      │            └─ send translation ──► AI grades it
+                      │                 └─ auto-continues, cycling through the list forever
                       └─ or /generate (no list) ──► AI generates standalone sentences
                               └─ send translation ──► AI grades (nothing stored)
                                    └─ auto-continues with a fresh random round
 ```
 
-Vocabulary, mastery progress, *and* conversation state (which step you're on,
+Vocabulary, practice history, *and* conversation state (which step you're on,
 plus the current round's sentences) all persist in Postgres — a restart or
 redeploy never strands you mid-conversation or loses your word list.
 
