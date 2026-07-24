@@ -1,8 +1,9 @@
-"""AI tutor service — wraps the Anthropic API for sentence generation and grading.
+"""AI tutor service — wraps the Gemini API for sentence generation and grading.
 
-Uses the async Anthropic SDK with structured (JSON-schema) outputs so responses
-parse reliably. The model, temperature, and token budget all come from
-``settings`` so there are no hardcoded values scattered across the codebase.
+Uses the async google-genai SDK with structured (JSON-schema) outputs so
+responses parse reliably. The model, temperature, and token budget all come
+from ``settings`` so there are no hardcoded values scattered across the
+codebase.
 """
 from __future__ import annotations
 
@@ -10,14 +11,15 @@ import json
 import logging
 from typing import Any
 
-import anthropic
-from anthropic import AsyncAnthropic
+from google import genai
+from google.genai import errors as genai_errors
+from google.genai import types
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+client = genai.Client(api_key=settings.gemini_api_key)
 
 # --- System prompt ---------------------------------------------------------
 # Forces the model to support ANY natural language and to calibrate difficulty
@@ -34,11 +36,11 @@ _SYSTEM_PROMPT = (
     "never add commentary outside it."
 )
 
-# JSON schemas for structured outputs. Note: numeric/length constraints are not
-# supported by structured outputs, so ranges are enforced via the prompt.
+# JSON schemas for structured outputs (Gemini's OpenAPI-subset Schema format).
+# Note: numeric/length constraints and `additionalProperties` are not
+# supported, so ranges are enforced via the prompt.
 _SENTENCES_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "additionalProperties": False,
     "properties": {
         "sentences": {
             "type": "array",
@@ -51,7 +53,6 @@ _SENTENCES_SCHEMA: dict[str, Any] = {
 
 _EVALUATION_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "additionalProperties": False,
     "properties": {
         "score": {
             "type": "number",
@@ -76,17 +77,19 @@ def _system() -> str:
 
 
 async def _structured_call(prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
-    """Make one Anthropic call constrained to ``schema`` and return parsed JSON."""
-    response = await client.messages.create(
+    """Make one Gemini call constrained to ``schema`` and return parsed JSON."""
+    response = await client.aio.models.generate_content(
         model=settings.model,
-        max_tokens=settings.max_tokens,
-        temperature=settings.temperature,
-        system=_system(),
-        messages=[{"role": "user", "content": prompt}],
-        output_config={"format": {"type": "json_schema", "schema": schema}},
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=_system(),
+            temperature=settings.temperature,
+            max_output_tokens=settings.max_tokens,
+            response_mime_type="application/json",
+            response_schema=schema,
+        ),
     )
-    text = "".join(block.text for block in response.content if block.type == "text")
-    return json.loads(text)
+    return json.loads(response.text)
 
 
 async def generate_sentences(words: list[str], level: str, language: str) -> list[str]:
@@ -111,7 +114,7 @@ async def generate_sentences(words: list[str], level: str, language: str) -> lis
         if not sentences:
             raise ValueError("model returned no sentences")
         return sentences[:3]
-    except (anthropic.APIError, ValueError, json.JSONDecodeError, KeyError) as exc:
+    except (genai_errors.APIError, ValueError, json.JSONDecodeError, KeyError) as exc:
         logger.exception("generate_sentences failed")
         raise TutorError("I couldn't generate practice sentences right now. "
                          "Please try again in a moment.") from exc
@@ -145,7 +148,7 @@ async def evaluate_translation(
             "corrections": str(data.get("corrections", "")).strip(),
             "alternative": str(data.get("alternative", "")).strip(),
         }
-    except (anthropic.APIError, ValueError, json.JSONDecodeError, KeyError) as exc:
+    except (genai_errors.APIError, ValueError, json.JSONDecodeError, KeyError) as exc:
         logger.exception("evaluate_translation failed")
         raise TutorError("I couldn't evaluate your translation right now. "
                          "Please try again in a moment.") from exc
