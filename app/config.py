@@ -35,7 +35,11 @@ class Settings(BaseSettings):
     app_name: str = "Translate Me Like Native!"
     # Groq's free tier: fast open-weight inference, no card required.
     model: str = "llama-3.3-70b-versatile"
+    # Low temperature for grading — we want consistent, careful evaluation.
     temperature: float = 0.3
+    # Higher temperature for generating practice sentences — we want variety so
+    # repeated /generate rounds don't return the same sentences.
+    generation_temperature: float = 0.9
     max_tokens: int = 1024
 
     # --- Practice rounds ---

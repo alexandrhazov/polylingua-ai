@@ -13,6 +13,7 @@ from __future__ import annotations
 import html
 import json
 import logging
+import random
 from typing import Any
 
 import groq
@@ -55,11 +56,29 @@ def _system() -> str:
     return _SYSTEM_PROMPT.format(app_name=settings.app_name)
 
 
-async def _structured_call(prompt: str) -> dict[str, Any]:
-    """Make one Groq call in JSON mode and return the parsed object."""
+# Topics to steer random practice so repeated /generate rounds don't keep
+# returning the same "safe" sentences. A few are sampled per round.
+_RANDOM_THEMES = [
+    "travel", "food and cooking", "work and career", "technology", "nature",
+    "family and friends", "health and fitness", "sports", "music", "shopping",
+    "weather", "daily routine", "hobbies", "emotions and feelings", "city life",
+    "education", "money and finance", "the future", "childhood memories",
+    "movies and TV", "books and reading", "the environment",
+    "holidays and festivals", "science", "animals and pets", "art",
+    "dreams and goals", "the internet and social media", "transport",
+    "houses and homes",
+]
+
+
+async def _structured_call(prompt: str, temperature: float | None = None) -> dict[str, Any]:
+    """Make one Groq call in JSON mode and return the parsed object.
+
+    ``temperature`` defaults to ``settings.temperature`` (tuned for grading);
+    generation calls pass a higher value for variety.
+    """
     response = await client.chat.completions.create(
         model=settings.model,
-        temperature=settings.temperature,
+        temperature=settings.temperature if temperature is None else temperature,
         max_tokens=settings.max_tokens,
         response_format={"type": "json_object"},
         messages=[
@@ -92,7 +111,7 @@ async def generate_sentences(words: list[str], level: str, source_language: str)
         "word, in the same order as the vocabulary words."
     )
     try:
-        data = await _structured_call(prompt)
+        data = await _structured_call(prompt, temperature=settings.generation_temperature)
         sentences = [s.strip() for s in data.get("sentences", []) if s.strip()]
         if not sentences:
             raise ValueError("model returned no sentences")
@@ -110,17 +129,28 @@ async def generate_random_sentences(level: str, language: str, count: int) -> li
     vocabulary — the model picks its own content, nothing is tracked or
     stored. Raises ``TutorError`` on API/parse failure.
     """
+    # Sample distinct themes to steer content so repeated rounds differ. Fall
+    # back to sampling with repetition if the learner asked for more sentences
+    # than we have themes.
+    if count <= len(_RANDOM_THEMES):
+        themes = random.sample(_RANDOM_THEMES, count)
+    else:
+        themes = random.choices(_RANDOM_THEMES, k=count)
+    theme_list = ", ".join(themes)
+
     prompt = (
         f"Sentence language: {language}\n"
         f"Proficiency level (CEFR): {level}\n\n"
         f"Write exactly {count} distinct, natural, useful sentences in "
-        f"{language}, suited to a {level} learner. Vary the topics and "
-        "vocabulary across the sentences. The learner will translate them.\n\n"
+        f"{language}, suited to a {level} learner. Use a different one of these "
+        f"topics for each sentence, in any order: {theme_list}. Keep the "
+        "sentences fresh and varied — avoid clichéd textbook examples. The "
+        "learner will translate them.\n\n"
         'Respond with ONLY a JSON object of this exact form: '
         f'{{"sentences": ["...", "..."]}} — containing exactly {count} sentences.'
     )
     try:
-        data = await _structured_call(prompt)
+        data = await _structured_call(prompt, temperature=settings.generation_temperature)
         sentences = [s.strip() for s in data.get("sentences", []) if s.strip()]
         if not sentences:
             raise ValueError("model returned no sentences")
