@@ -10,6 +10,7 @@ so there are no hardcoded values scattered across the codebase.
 """
 from __future__ import annotations
 
+import html
 import json
 import logging
 from typing import Any
@@ -41,9 +42,12 @@ _SYSTEM_PROMPT = (
     "any other — including right-to-left and non-Latin scripts. "
     "Always honor the requested languages and CEFR proficiency level "
     "(A1 = beginner ... C1 = advanced), calibrating vocabulary and grammar "
-    "complexity to that level. Respond ONLY with a single valid JSON object "
-    "matching the structure requested in the prompt; never add commentary "
-    "or markdown fences outside it."
+    "complexity to that level. When grading, treat numerals and their "
+    "spelled-out equivalents as identical (e.g. '3' and 'three') — never flag "
+    "a difference in number formatting as a mistake, and keep the learner's "
+    "original numeral style in any corrected text. Respond ONLY with a single "
+    "valid JSON object matching the structure requested in the prompt; never "
+    "add commentary or markdown fences outside it."
 )
 
 
@@ -128,50 +132,75 @@ async def generate_random_sentences(level: str, language: str, count: int) -> li
 
 
 async def evaluate_translation(
-    original: str, user_translation: str, source_language: str, dest_language: str
+    sentences: list[str], user_translation: str, source_language: str, dest_language: str
 ) -> dict[str, Any]:
-    """Grade a ``dest_language`` translation of ``original`` (in ``source_language``).
+    """Grade a ``dest_language`` translation of ``sentences`` (in ``source_language``).
 
-    Returns a dict with keys: score (float), corrections (str), alternative (str).
-    Raises ``TutorError`` on API/parse failure.
+    Returns a dict with keys: ``score`` (float) and ``items`` (a list, one entry
+    per practice sentence, each with ``mistakes`` (list[str]), ``corrected``
+    (str), and ``grammar`` (str)). Raises ``TutorError`` on API/parse failure.
     """
+    numbered = "\n".join(f"{i}. {s}" for i, s in enumerate(sentences, start=1))
     prompt = (
-        f"The following practice sentence(s) are in {source_language}:\n"
-        f"{original}\n\n"
+        f"The following {len(sentences)} practice sentence(s) are in {source_language}:\n"
+        f"{numbered}\n\n"
         f"The learner translated them into {dest_language}, submitting:\n"
         f"{user_translation}\n\n"
-        f"Evaluate the {dest_language} translation.\n\n"
+        f"Evaluate the {dest_language} translation, one entry per numbered "
+        "sentence, in the same order.\n\n"
         'Respond with ONLY a JSON object of this exact form: '
-        '{"score": <number 0-10, one decimal allowed>, '
-        '"corrections": "<specific grammar/vocabulary notes, empty string if '
-        'the translation is already correct>", '
-        '"alternative": "<a natural, native-sounding alternative phrasing in '
-        f'{dest_language}>"}}'
+        '{"score": <overall number 0-10, one decimal allowed>, '
+        f'"items": [{{"mistakes": ["<specific mistake in the learner\'s '
+        'translation>", "..."], "corrected": "<the full, natural, '
+        f'native-sounding correct translation of this sentence in {dest_language}>", '
+        '"grammar": "<short explanation of the grammar behind the fix>"}}, ...]}. '
+        f"Include exactly one item per practice sentence ({len(sentences)} total), "
+        "in order. If a sentence's translation is already correct, use an empty "
+        '"mistakes" list and an empty "grammar" string. Leave "grammar" empty '
+        "when there is nothing worth explaining."
     )
     try:
         data = await _structured_call(prompt)
         # Clamp score defensively into 0-10.
         score = max(0.0, min(10.0, float(data.get("score", 0))))
-        return {
-            "score": round(score, 1),
-            "corrections": str(data.get("corrections", "")).strip(),
-            "alternative": str(data.get("alternative", "")).strip(),
-        }
+        raw_items = data.get("items") or []
+        if not isinstance(raw_items, list):
+            raw_items = []
+        items = []
+        for entry in raw_items:
+            if not isinstance(entry, dict):
+                continue
+            raw_mistakes = entry.get("mistakes") or []
+            if not isinstance(raw_mistakes, list):
+                raw_mistakes = []
+            items.append({
+                "mistakes": [str(m).strip() for m in raw_mistakes if str(m).strip()],
+                "corrected": str(entry.get("corrected", "")).strip(),
+                "grammar": str(entry.get("grammar", "")).strip(),
+            })
+        return {"score": round(score, 1), "items": items}
     except (groq.APIError, ValueError, json.JSONDecodeError, KeyError, TypeError) as exc:
         logger.exception("evaluate_translation failed")
-        raise TutorError("I couldn't evaluate your translation right now. "
-                         "Please try again in a moment.") from exc
+        raise TutorError("I couldn't check your translation just now. "
+                         "Give it another try in a moment.") from exc
 
 
 def format_feedback(result: dict[str, Any]) -> str:
     """Render an evaluation dict into an HTML Telegram message."""
+    items = result.get("items", [])
     lines = [f"⭐ <b>Accuracy:</b> {result['score']}/10"]
-    if result["corrections"]:
-        lines.append(f"\n✏️ <b>Corrections &amp; notes:</b>\n{result['corrections']}")
-    else:
-        lines.append("\n✅ No corrections — nicely done!")
-    if result["alternative"]:
-        lines.append(f"\n💡 <b>Natural phrasing:</b>\n{result['alternative']}")
+    multi = len(items) > 1
+    for i, item in enumerate(items, start=1):
+        block = ["", f"<b>Sentence {i}</b>"] if multi else [""]
+        if not item["mistakes"]:
+            block.append("✅ Correct — nicely done!")
+        else:
+            block += [f"{n}. {html.escape(m)}" for n, m in enumerate(item["mistakes"], start=1)]
+            if item["corrected"]:
+                block.append(f"✅ {html.escape(item['corrected'])}")
+            if item["grammar"]:
+                block.append(f"📝 {html.escape(item['grammar'])}")
+        lines += block
     return "\n".join(lines)
 
 

@@ -19,7 +19,11 @@ router = Router(name="start")
 
 LEVELS = ["A1", "A2", "B1", "B2", "C1"]
 # A short list of suggestions; users can also type any language they like.
-SUGGESTED_LANGUAGES = ["Spanish", "French", "German", "Hebrew", "Italian", "Japanese"]
+SUGGESTED_LANGUAGES = ["Russian", "English", "Hebrew", "Spanish", "French"]
+
+# Bounds for the /count command (sentences per round).
+MIN_ROUND_SIZE = 1
+MAX_ROUND_SIZE = 10
 
 
 def _levels_keyboard() -> InlineKeyboardMarkup:
@@ -64,7 +68,7 @@ async def _begin_setup(message: Message, state: FSMContext, greeting: str) -> No
     await state.clear()
     await state.set_state(Learning.choosing_level)
     await message.answer(
-        f"{greeting}\n\nFirst, choose your proficiency level:",
+        f"{greeting}\n\nWhat's your level?",
         reply_markup=_levels_keyboard(),
     )
 
@@ -74,9 +78,8 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     await _begin_setup(
         message,
         state,
-        f"👋 Welcome to <b>{settings.app_name}</b> — your multilingual AI language tutor!\n\n"
-        "I generate practice sentences from your vocabulary and grade your "
-        "translations, in <b>any</b> language and at your level.",
+        f"👋 Hi! I'm <b>{settings.app_name}</b>. I make practice sentences and "
+        "grade your translations — any language, your level.",
     )
 
 
@@ -85,31 +88,55 @@ async def cmd_settings(message: Message, state: FSMContext) -> None:
     await _begin_setup(
         message,
         state,
-        "⚙️ Let's update your level, languages, or direction. Your saved "
-        "vocabulary won't be touched.",
+        "⚙️ Let's update your setup. Your saved words stay put.",
     )
 
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
     await message.answer(
-        f"<b>{settings.app_name}</b> — how it works:\n\n"
-        "1. /start and pick your level (A1–C1).\n"
-        "2. Pick the language you already know, then the one you're learning.\n"
-        "3. Pick a direction: translate INTO your target language (production) "
-        "or FROM it (comprehension).\n"
-        "4. Send vocabulary words as text, or upload a .txt file with one word "
-        "per line — send as many as you like, I'll remember them all and quiz "
-        "you on them, cycling through the list round after round. Or skip "
-        "this and use /generate (or the button) for random AI-picked "
-        "sentences instead — no list needed, nothing saved.\n"
-        "5. Either way, I grade each round with a score and corrections.\n\n"
-        "Other commands:\n"
-        "• /generate — random sentences for your level, no list needed\n"
-        "• /skip — skip the current round without grading it\n"
+        f"<b>{settings.app_name}</b> — quick guide:\n\n"
+        "Send me words (text or a .txt file) and I'll quiz you on them, a few "
+        "at a time. No list? Use /generate for random sentences. Either way, "
+        "you translate and I grade you.\n\n"
+        "Commands:\n"
+        "• /generate — random sentences, no list needed\n"
+        "• /count — set sentences per round (e.g. /count 5)\n"
+        "• /skip — skip this round\n"
         "• /settings — change level, languages, or direction\n"
-        "• /start — full reset\n"
+        "• /start — start over\n"
     )
+
+
+@router.message(Command("count"))
+async def cmd_count(message: Message) -> None:
+    user = await db.get_user(message.from_user.id)
+    if user is None:
+        await message.answer("Finish /start first, then you can set this. 🙂")
+        return
+
+    arg = (message.text or "").split(maxsplit=1)
+    if len(arg) < 2:
+        await message.answer(
+            f"You're getting <b>{user.round_size}</b> sentence(s) per round.\n"
+            f"Change it with e.g. <code>/count 5</code> "
+            f"({MIN_ROUND_SIZE}–{MAX_ROUND_SIZE})."
+        )
+        return
+
+    try:
+        size = int(arg[1].strip())
+    except ValueError:
+        await message.answer(f"Give me a number, e.g. <code>/count 5</code> "
+                             f"({MIN_ROUND_SIZE}–{MAX_ROUND_SIZE}).")
+        return
+
+    if not MIN_ROUND_SIZE <= size <= MAX_ROUND_SIZE:
+        await message.answer(f"Pick a number between {MIN_ROUND_SIZE} and {MAX_ROUND_SIZE}.")
+        return
+
+    await db.set_round_size(message.from_user.id, size)
+    await message.answer(f"Done — <b>{size}</b> sentence(s) per round from now on. 👍")
 
 
 @router.callback_query(Learning.choosing_level, F.data.startswith("level:"))
@@ -118,9 +145,8 @@ async def choose_level(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(level=level)
     await state.set_state(Learning.choosing_native_language)
     await callback.message.edit_text(  # type: ignore[union-attr]
-        f"Level set to <b>{level}</b>. 🎯\n\n"
-        "Which language do you already know well (your native/fluent "
-        "language)? Tap one below, or <b>type any language</b>:",
+        f"<b>{level}</b> it is. 🎯\n\n"
+        "Which language do you already know? Tap one or type your own:",
         reply_markup=_languages_keyboard("native"),
     )
     await callback.answer()
@@ -137,7 +163,7 @@ async def choose_native_language_button(callback: CallbackQuery, state: FSMConte
 async def choose_native_language_text(message: Message, state: FSMContext) -> None:
     language = (message.text or "").strip()
     if not language:
-        await message.answer("Please type a language name, e.g. <i>Russian</i>.")
+        await message.answer("Type a language name, e.g. <i>Russian</i>.")
         return
     await _set_native_language(message, state, language)
 
@@ -147,8 +173,7 @@ async def _set_native_language(message: Message, state: FSMContext, language: st
     await state.set_state(Learning.choosing_target_language)
     await message.answer(
         f"Got it — you know <b>{language}</b>. 🌍\n\n"
-        "Now, which language do you want to practice? Tap one below, or "
-        "<b>type any language</b>:",
+        "And which one do you want to practice? Tap or type:",
         reply_markup=_languages_keyboard("target"),
     )
 
@@ -164,7 +189,7 @@ async def choose_target_language_button(callback: CallbackQuery, state: FSMConte
 async def choose_target_language_text(message: Message, state: FSMContext) -> None:
     language = (message.text or "").strip()
     if not language:
-        await message.answer("Please type a language name, e.g. <i>Hebrew</i>.")
+        await message.answer("Type a language name, e.g. <i>Hebrew</i>.")
         return
     await _set_target_language(message, state, language)
 
@@ -174,12 +199,8 @@ async def _set_target_language(message: Message, state: FSMContext, language: st
     await state.set_state(Learning.choosing_direction)
     native = data["native_language"]
     await message.answer(
-        f"Great — <b>{native} → {language}</b>. 🎯\n\n"
-        "Which direction do you want to practice?\n"
-        f"• <b>{native} ➜ {language}</b>: I show a sentence in {native}, you "
-        f"translate it into {language} (production practice).\n"
-        f"• <b>{language} ➜ {native}</b>: I show a sentence in {language}, you "
-        f"translate it into {native} (comprehension practice).",
+        f"Nice — <b>{native} → {language}</b>. 🎯\n\n"
+        "Which way do you want to practice?",
         reply_markup=_direction_keyboard(native, language),
     )
 
@@ -200,13 +221,10 @@ async def choose_direction(callback: CallbackQuery, state: FSMContext) -> None:
     )
     await state.set_state(Learning.awaiting_vocab)
     await callback.message.edit_text(  # type: ignore[union-attr]
-        "Setup complete! ✅\n\n"
-        "Send me vocabulary words to practice — as a message (comma-, space-, "
-        "or newline-separated) or as a <b>.txt file</b> with one word per "
-        "line. Send as many as you like, e.g. hundreds at once — I'll "
-        "remember them all and quiz you on them, a few at a time, cycling "
-        "through the list round after round.\n\n"
+        "All set! ✅\n\n"
+        "Send me some words to practice — a message or a <b>.txt file</b> "
+        "(one per line). As many as you like; I'll quiz you a few at a time.\n\n"
         "Example: <i>negotiate, resilient, breakthrough</i>\n\n"
-        "Don't have a list? Tap below to get random sentences for your level instead.",
+        "No list? Tap below for random sentences.",
         reply_markup=_generate_keyboard(),
     )

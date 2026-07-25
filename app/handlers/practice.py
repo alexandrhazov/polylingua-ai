@@ -22,7 +22,6 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.utils.chat_action import ChatActionSender
 
 from app import db
-from app.config import settings
 from app.handlers.start import _generate_keyboard
 from app.services import ai_tutor
 from app.services.ai_tutor import TutorError
@@ -61,12 +60,12 @@ async def _start_round(message: Message, state: FSMContext, telegram_id: int) ->
     user = await db.get_user(telegram_id)
     assert user is not None  # profile is created before awaiting_vocab is reached
 
-    words = await db.next_round(telegram_id, settings.round_size)
+    words = await db.next_round(telegram_id, user.round_size)
     if not words:
         await state.set_state(Learning.awaiting_vocab)
         await message.answer(
-            "You don't have any saved vocabulary yet. Send some (text or a "
-            ".txt file), or let AI quiz you at random instead.",
+            "No saved words yet. Send some (text or a .txt file), or tap for "
+            "random practice.",
             reply_markup=_generate_keyboard(),
         )
         return
@@ -86,9 +85,9 @@ async def _start_round(message: Message, state: FSMContext, telegram_id: int) ->
     await state.set_state(Learning.awaiting_translation)
 
     await message.answer(
-        f"Here are your <b>{source_language}</b> practice sentences ({user.level}):\n\n"
+        f"Your <b>{source_language}</b> sentences ({user.level}):\n\n"
         f"{_numbered_sentences(sentences)}\n\n"
-        "✍️ Send your translation."
+        "✍️ Translate away."
     )
 
 
@@ -101,7 +100,7 @@ async def _start_random_round(message: Message, state: FSMContext, telegram_id: 
     async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
         try:
             sentences = await ai_tutor.generate_random_sentences(
-                user.level, source_language, settings.round_size
+                user.level, source_language, user.round_size
             )
         except TutorError as exc:
             await message.answer(str(exc))
@@ -112,9 +111,9 @@ async def _start_random_round(message: Message, state: FSMContext, telegram_id: 
     await state.set_state(Learning.awaiting_translation)
 
     await message.answer(
-        f"Here are your <b>{source_language}</b> practice sentences ({user.level}):\n\n"
+        f"Your <b>{source_language}</b> sentences ({user.level}):\n\n"
         f"{_numbered_sentences(sentences)}\n\n"
-        "✍️ Send your translation."
+        "✍️ Translate away."
     )
 
 
@@ -136,7 +135,7 @@ async def skip_round(message: Message, state: FSMContext) -> None:
     telegram_id = message.from_user.id
     data = await state.get_data()
     word_ids = data.get("word_ids", [])
-    await message.answer("Skipped — no grade recorded. ⏭️")
+    await message.answer("Skipped. ⏭️")
     if word_ids:
         await db.skip_words(word_ids)
         await _start_round(message, state, telegram_id)
@@ -149,8 +148,8 @@ async def collect_vocab_text(message: Message, state: FSMContext) -> None:
     words = _parse_words(message.text or "")
     if not words:
         await message.answer(
-            "Please send at least one vocabulary word, e.g. "
-            "<i>negotiate, resilient, breakthrough</i>, or upload a .txt file."
+            "Send at least one word, e.g. "
+            "<i>negotiate, resilient, breakthrough</i> — or a .txt file."
         )
         return
 
@@ -165,14 +164,14 @@ async def collect_vocab_text(message: Message, state: FSMContext) -> None:
 async def collect_vocab_file(message: Message, state: FSMContext) -> None:
     document = message.document
     if document.mime_type and not document.mime_type.startswith(_ALLOWED_VOCAB_MIME_PREFIXES):
-        await message.answer("Please upload a plain <b>.txt</b> file with one word per line.")
+        await message.answer("Send a plain <b>.txt</b> file, one word per line.")
         return
 
     buffer = await message.bot.download(document)
     raw_text = buffer.read().decode("utf-8", errors="ignore")
     words = _parse_words(raw_text)
     if not words:
-        await message.answer("That file didn't contain any recognizable words.")
+        await message.answer("Couldn't find any words in that file.")
         return
 
     added = await db.add_words(message.from_user.id, words)
@@ -191,13 +190,12 @@ async def evaluate(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     sentences = data.get("sentences", [])
     word_ids = data.get("word_ids", [])
-    original = "\n".join(sentences)
     source_language, dest_language = _languages_for(user)
 
     async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
         try:
             result = await ai_tutor.evaluate_translation(
-                original, message.text or "", source_language, dest_language
+                sentences, message.text or "", source_language, dest_language
             )
         except TutorError as exc:
             await message.answer(str(exc))
@@ -215,12 +213,12 @@ async def evaluate(message: Message, state: FSMContext) -> None:
 
 @router.message(Learning.awaiting_vocab)
 async def vocab_needs_text(message: Message) -> None:
-    await message.answer("Please send vocabulary words as text or a .txt file. 🙂")
+    await message.answer("Send words as text or a .txt file. 🙂")
 
 
 @router.message(Learning.awaiting_translation)
 async def translation_needs_text(message: Message) -> None:
-    await message.answer("Please send your translation as text. 🙂")
+    await message.answer("Send your translation as text. 🙂")
 
 
 @router.message()
@@ -229,4 +227,4 @@ async def fallback(message: Message) -> None:
     before /start, or state that predates this app version). Registered last
     so every more specific handler above gets first refusal.
     """
-    await message.answer("Not sure what we're doing yet — send /start to begin. 🙂")
+    await message.answer("Send /start to begin. 🙂")

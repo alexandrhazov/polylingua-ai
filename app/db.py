@@ -39,6 +39,8 @@ class User(Base):
     # "native_to_target": sentences in native_language, translate into target_language.
     # "target_to_native": sentences in target_language, translate into native_language.
     direction: Mapped[str] = mapped_column(String(16))
+    # How many sentences per practice round. Per-user, changeable via /count.
+    round_size: Mapped[int] = mapped_column(default=3, server_default="3")
 
     words: Mapped[list["Word"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
@@ -72,6 +74,11 @@ class FSMState(Base):
 async def init_models() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Lightweight migration: create_all won't ALTER an existing table, so
+        # add the round_size column for users created before this feature.
+        await conn.exec_driver_sql(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS round_size INTEGER NOT NULL DEFAULT 3"
+        )
 
 
 async def get_user(telegram_id: int) -> User | None:
@@ -92,6 +99,15 @@ async def upsert_profile(
         user.target_language = target_language
         user.direction = direction
         await session.commit()
+
+
+async def set_round_size(telegram_id: int, size: int) -> None:
+    """Update how many sentences the user gets per round."""
+    async with async_session() as session:
+        user = await session.get(User, telegram_id)
+        if user is not None:
+            user.round_size = size
+            await session.commit()
 
 
 async def add_words(telegram_id: int, words: Sequence[str]) -> int:
