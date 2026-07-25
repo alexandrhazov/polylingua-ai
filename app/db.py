@@ -22,9 +22,18 @@ logger = logging.getLogger(__name__)
 # statement_cache_size=0 disables asyncpg's prepared-statement cache, which is
 # required when connecting through Neon's PgBouncer pooler (transaction-mode
 # pooling doesn't support reusing prepared statements across connections).
+#
+# pool_pre_ping + pool_recycle handle stale connections: Neon's pooler closes
+# idle connections (and the free Render instance sits idle between webhooks),
+# so a pooled connection can be dead by the time we reuse it — which surfaced
+# as "InterfaceError: connection is closed". pre_ping tests each connection
+# with a lightweight query before use and transparently reconnects if it's
+# dead; recycle proactively discards connections older than 5 minutes.
 engine = create_async_engine(
     settings.database_url,
     connect_args={"statement_cache_size": 0},
+    pool_pre_ping=True,
+    pool_recycle=300,
 )
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
