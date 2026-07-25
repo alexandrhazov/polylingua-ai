@@ -117,8 +117,15 @@ async def _start_random_round(message: Message, state: FSMContext, telegram_id: 
     )
 
 
-@router.message(Learning.awaiting_vocab, Command("generate"))
+# No state filter: /generate should start a fresh random round from anywhere
+# (including mid-translation), not only from awaiting_vocab. Registered first
+# in this router so it wins over the awaiting_translation text handler below —
+# otherwise "/generate" gets graded as if it were a submitted translation.
+@router.message(Command("generate"))
 async def random_practice_command(message: Message, state: FSMContext) -> None:
+    if await db.get_user(message.from_user.id) is None:
+        await message.answer("Send /start to set up first. 🙂")
+        return
     await _start_random_round(message, state, message.from_user.id)
 
 
@@ -143,7 +150,7 @@ async def skip_round(message: Message, state: FSMContext) -> None:
         await _start_random_round(message, state, telegram_id)
 
 
-@router.message(Learning.awaiting_vocab, F.text)
+@router.message(Learning.awaiting_vocab, F.text & ~F.text.startswith("/"))
 async def collect_vocab_text(message: Message, state: FSMContext) -> None:
     words = _parse_words(message.text or "")
     if not words:
@@ -181,7 +188,7 @@ async def collect_vocab_file(message: Message, state: FSMContext) -> None:
     await _start_round(message, state, message.from_user.id)
 
 
-@router.message(Learning.awaiting_translation, F.text)
+@router.message(Learning.awaiting_translation, F.text & ~F.text.startswith("/"))
 async def evaluate(message: Message, state: FSMContext) -> None:
     telegram_id = message.from_user.id
     user = await db.get_user(telegram_id)
