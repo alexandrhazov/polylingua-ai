@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Runtime configuration for PolyLingua AI.
+    """Runtime configuration for Translate Me Like Native!.
 
     Values are read from environment variables (Render dashboard in production)
     or a local ``.env`` file during development.
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     webhook_secret: str = ""
 
     # --- Product / model ---
-    app_name: str = "PolyLingua AI"
+    app_name: str = "Translate Me Like Native!"
     # Groq's free tier: fast open-weight inference, no card required.
     model: str = "llama-3.3-70b-versatile"
     temperature: float = 0.3

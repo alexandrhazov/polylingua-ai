@@ -1,4 +1,4 @@
-# PolyLingua AI 🌍
+# Translate Me Like Native! 🌍
 
 An asynchronous, production-ready Telegram bot that acts as a **multilingual AI
 language tutor**. Pick a proficiency level (A1–C1), the language you already
@@ -6,7 +6,7 @@ know, the language you're learning, and a practice direction. Then choose how
 you want to practice:
 
 - **Your own vocabulary** — send words (text or a `.txt` file), any amount,
-  and PolyLingua remembers all of it, quizzing you a few at a time, cycling
+  and the bot remembers all of it, quizzing you a few at a time, cycling
   through the list round after round.
 - **Random practice** (`/generate` or the button) — no list needed. The AI
   picks standalone sentences for your level on the fly, nothing saved.
@@ -166,7 +166,7 @@ redeploy never strands you mid-conversation or loses your word list.
 | `DATABASE_URL`      | ✅       | —                  | Async Postgres URL (`postgresql+asyncpg://...`) |
 | `WEBHOOK_URL`       | ✅       | —                  | Public HTTPS base URL                     |
 | `WEBHOOK_SECRET`    | ❌       | `""`               | Shared secret for webhook verification    |
-| `APP_NAME`          | ❌       | `PolyLingua AI`    | Display name                              |
+| `APP_NAME`          | ❌       | `Translate Me Like Native!` | Display name                     |
 | `MODEL`             | ❌       | `llama-3.3-70b-versatile` | Groq model id                      |
 | `TEMPERATURE`       | ❌       | `0.3`              | Sampling temperature (low = consistent)   |
 | `MAX_TOKENS`        | ❌       | `1024`             | Max output tokens per call                |
