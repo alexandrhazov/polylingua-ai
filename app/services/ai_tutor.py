@@ -148,12 +148,30 @@ async def evaluate_translation(
         f"{user_translation}\n\n"
         f"Evaluate the {dest_language} translation, one entry per numbered "
         "sentence, in the same order.\n\n"
+        "GRADING PRINCIPLES — read carefully:\n"
+        "- Judge whether the translation conveys the MEANING of the whole "
+        "sentence naturally and correctly. This is translation, not dictation: "
+        "there is no single right answer.\n"
+        "- Word ORDER is flexible. Do not penalize a different but grammatical "
+        "order.\n"
+        "- Accept synonyms, equivalent phrasings, and optional words. If the "
+        "learner's word choice is natural and correct, it is NOT a mistake even "
+        "when your preferred phrasing differs.\n"
+        "- Only list something in \"mistakes\" if it is an ACTUAL error: wrong "
+        "meaning, a real grammar mistake, or clearly unnatural usage. Never list "
+        "an optional or stylistic difference, and never contradict yourself "
+        "(e.g. do not say a word is 'missing' if it is not required).\n"
+        "- Ignore differences in punctuation and capitalization unless they "
+        "change the meaning.\n"
+        "- When the translation is correct and natural, return an empty "
+        "\"mistakes\" list and give it a high score, even if 'corrected' phrases "
+        "it slightly differently.\n\n"
         'Respond with ONLY a JSON object of this exact form: '
         '{"score": <overall number 0-10, one decimal allowed>, '
-        f'"items": [{{"mistakes": ["<specific mistake in the learner\'s '
-        'translation>", "..."], "corrected": "<the full, natural, '
-        f'native-sounding correct translation of this sentence in {dest_language}>", '
-        '"grammar": "<short explanation of the grammar behind the fix>"}}, ...]}. '
+        f'"items": [{{"mistakes": ["<a genuine error, stated clearly>", "..."], '
+        '"corrected": "<the full, natural, native-sounding correct translation '
+        f'of this sentence in {dest_language}>", '
+        '"grammar": "<short explanation of the grammar behind a real fix>"}}, ...]}. '
         f"Include exactly one item per practice sentence ({len(sentences)} total), "
         "in order. If a sentence's translation is already correct, use an empty "
         '"mistakes" list and an empty "grammar" string. Leave "grammar" empty '
