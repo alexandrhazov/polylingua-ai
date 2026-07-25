@@ -80,12 +80,24 @@ async def init_models() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
     # Lightweight migration for the round_size column on pre-existing tables
-    # (create_all won't ALTER an existing table). Run in its own transaction so
-    # a failure here can't abort the create_all commit above. ALTER requires
-    # table-owner privileges, so with the restricted DML-only role used in
-    # production this raises InsufficientPrivilegeError — we log and continue.
-    # In that case add the column once as the DB owner (see README):
-    #   ALTER TABLE users ADD COLUMN IF NOT EXISTS round_size integer NOT NULL DEFAULT 3;
+    # (create_all won't ALTER an existing table). Check for the column first so
+    # the common case — it already exists — stays completely silent instead of
+    # logging a warning on every startup. ALTER requires table-owner
+    # privileges, so if the column is genuinely missing and we're connected
+    # with the restricted DML-only role, the attempt raises
+    # InsufficientPrivilegeError; we log actionable guidance and continue.
+    async with engine.connect() as conn:
+        column_exists = (
+            await conn.exec_driver_sql(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'users' AND column_name = 'round_size'"
+            )
+        ).first() is not None
+    if column_exists:
+        return
+
+    # Column missing — attempt to add it in its own transaction so a privilege
+    # failure can't leave an aborted transaction to blow up on commit.
     try:
         async with engine.begin() as conn:
             await conn.exec_driver_sql(
@@ -93,9 +105,9 @@ async def init_models() -> None:
             )
     except ProgrammingError as exc:
         logger.warning(
-            "Skipping round_size migration (%s). If the column is missing, add "
-            "it once as the DB owner: ALTER TABLE users ADD COLUMN IF NOT "
-            "EXISTS round_size integer NOT NULL DEFAULT 3;",
+            "users.round_size is missing and could not be added (%s). Add it "
+            "once as the DB owner: ALTER TABLE users ADD COLUMN IF NOT EXISTS "
+            "round_size integer NOT NULL DEFAULT 3;",
             exc.orig,
         )
 
