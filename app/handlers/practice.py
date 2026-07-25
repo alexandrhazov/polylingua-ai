@@ -202,7 +202,11 @@ async def evaluate(message: Message, state: FSMContext) -> None:
     async with ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
         try:
             result = await ai_tutor.evaluate_translation(
-                sentences, message.text or "", source_language, dest_language
+                sentences,
+                message.text or "",
+                source_language,
+                dest_language,
+                user.native_language,
             )
         except TutorError as exc:
             await message.answer(str(exc))
