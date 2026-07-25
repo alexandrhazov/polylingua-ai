@@ -7,13 +7,17 @@ restarts/redeploys.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from typing import Sequence
 
 from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, String, func, select
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 # statement_cache_size=0 disables asyncpg's prepared-statement cache, which is
 # required when connecting through Neon's PgBouncer pooler (transaction-mode
@@ -74,10 +78,25 @@ class FSMState(Base):
 async def init_models() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Lightweight migration: create_all won't ALTER an existing table, so
-        # add the round_size column for users created before this feature.
-        await conn.exec_driver_sql(
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS round_size INTEGER NOT NULL DEFAULT 3"
+
+    # Lightweight migration for the round_size column on pre-existing tables
+    # (create_all won't ALTER an existing table). Run in its own transaction so
+    # a failure here can't abort the create_all commit above. ALTER requires
+    # table-owner privileges, so with the restricted DML-only role used in
+    # production this raises InsufficientPrivilegeError — we log and continue.
+    # In that case add the column once as the DB owner (see README):
+    #   ALTER TABLE users ADD COLUMN IF NOT EXISTS round_size integer NOT NULL DEFAULT 3;
+    try:
+        async with engine.begin() as conn:
+            await conn.exec_driver_sql(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS round_size INTEGER NOT NULL DEFAULT 3"
+            )
+    except ProgrammingError as exc:
+        logger.warning(
+            "Skipping round_size migration (%s). If the column is missing, add "
+            "it once as the DB owner: ALTER TABLE users ADD COLUMN IF NOT "
+            "EXISTS round_size integer NOT NULL DEFAULT 3;",
+            exc.orig,
         )
 
 
